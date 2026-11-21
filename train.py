@@ -4,7 +4,6 @@ All hyperparameters are centralized in config.py: this file only handles parsing
 Common examples:
     python train.py --epochs 2 --batch_size 2 --gpu_ids 0
     python train.py --alpha 0.4 --beta 0.4 --gamma 0.1 --lambda_percep 0.2
-    python train.py --config exps/loss_a04_b03.json
 """
 import argparse
 import json
