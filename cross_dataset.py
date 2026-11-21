@@ -1,12 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Cross-dataset experiment: UIEB full training -> LSUI full testing.
+"""Cross-dataset experiment: UIEB full training -> LSUI test.
 
-
-
-Outputs: checkpoints/<run_name>/{config.json,unet_simplified_best.pth,...}
-        results/test_lsui_test_*/metrics.txt (per-image metrics in metrics_per_image.csv)
-        cross_<run_name>.md / cross_<run_name>.json (in-domain vs cross-domain summary)
+Writes checkpoints/<run_name>/, results/test_<dataset>_<split>_*/ and cross_<run_name>.{md,json,log}.
 """
 import argparse
 import json

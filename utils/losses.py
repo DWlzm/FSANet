@@ -1,23 +1,12 @@
-"""Unified loss function export.
-
-- MultiSpectralLoss             : main UIEB training loss (gradient + low-frequency + color correlation + VGG perceptual)
-- VGGPerceptualLoss             : standalone VGG19 multi-layer perceptual loss
-- ConfigurableMultiSpectralLoss : configurable loss for ablation experiments (used with build_loss)
-"""
+"""Loss functions: MultiSpectralLoss (training), VGGPerceptualLoss, ConfigurableMultiSpectralLoss (ablation)."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 from torchvision.models import vgg16
 
-# ---------------------------------------------------------------- main training loss
 class MultiSpectralLoss(nn.Module):
-    """Four-component weighted loss: gradient + low-frequency + color correlation + VGG perceptual.
-
-    All four weights and the VGG truncation layer count are determined by constructor parameters
-    (default values match the historical implementation). The training script reads them from the
-    loss section of config.py and passes them in, making hyperparameter experiments easy.
-    """
+    """Weighted sum of gradient, low-frequency, color-correlation and VGG perceptual losses."""
     def __init__(self, alpha=0.5, beta=0.3, gamma=0.2, lambda_percep=0.1,
                  percep_layers=16, vgg_pretrained=True, device='cuda'):
         super(MultiSpectralLoss, self).__init__()
@@ -75,11 +64,9 @@ class MultiSpectralLoss(nn.Module):
         return F.l1_loss(pred_cc, target_cc)
 
 
-# ---------------------------------------------------------------- perceptual loss
 class VGGPerceptualLoss(nn.Module):
     def __init__(self, device='cuda'):
         super(VGGPerceptualLoss, self).__init__()
-        # changed to use the weights argument instead of pretrained
         vgg = models.vgg19(weights=models.VGG19_Weights.DEFAULT).features[:36].eval()
         for param in vgg.parameters():
             param.requires_grad = False
@@ -99,7 +86,7 @@ class VGGPerceptualLoss(nn.Module):
         for i, layer in enumerate(self.vgg):
             x = layer(x)
             y = layer(y)
-            if i in [2, 7, 12, 21, 30]:  # VGG feature layers
+            if i in [2, 7, 12, 21, 30]:
                 x_features.append(x)
                 y_features.append(y)
                 
@@ -110,7 +97,6 @@ class VGGPerceptualLoss(nn.Module):
         return loss
 
 
-# ---------------------------------------------------------------- configurable loss for ablation
 class ConfigurableMultiSpectralLoss(nn.Module):
     def __init__(self, config, device='cuda'):
         super(ConfigurableMultiSpectralLoss, self).__init__()

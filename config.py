@@ -1,36 +1,8 @@
-"""Centralized hyperparameter configuration for FSANet training.
+"""Centralized hyperparameters for FSANet training; train.py carries no magic numbers.
 
-All training-related hyperparameters (data, model, loss component weights, optimizer, scheduler,
-training loop, evaluation thresholds, output directories) are defined in this file; train.py only
-reads the config and executes, and no longer has built-in magic numbers.
-
-Three ways to use for hyperparameter experiments:
-
-1) Directly edit the default values in this file (simplest, just edit and run):
-
-       python train.py --epochs 2 --batch_size 2 --gpu_ids 0
-
-2) Command-line overrides (no code changes, suitable for parameter sweeps):
-
-       python train.py --alpha 0.4 --beta 0.4 --gamma 0.1 --lambda_percep 0.2
-       python train.py --lr 2e-4 --weight_decay 1e-4 --sched_patience 10
-       python train.py --n_filters 96 --seed 2026 --run_name sweep_a04b04
-
-   Generic dotted overrides work for any field:
-
-       python train.py --override loss.alpha=0.4 --override train.batch_size=4
-
-3) Config files (recommended: one json per hyperparameter set, convenient for batch submission):
-
-       python train.py --config exps/loss_a04_b03.json
-       python train.py --config exps/loss_a04_b03.json --epochs 2   # CLI has highest priority
-
-Each experiment directory will contain a `config.json` (the complete config actually in effect),
-which can be used to reproduce directly.
-
-Note: the composite score weights and normalization baselines for evaluation metrics are still in
-`utils/model_config.py` (metric configuration, not a training hyperparameter). This file does not
-duplicate that config, to avoid having two sources of truth.
+Override order (later wins): defaults here < --config json < --override k=v < named CLI flags.
+Every run writes the effective config to <run>/config.json, which can be fed back via --config.
+Composite-score weights and baselines stay in utils/model_config.py (metric config, not training).
 """
 from dataclasses import dataclass, field, asdict
 import json
@@ -40,12 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 @dataclass
 class DataConfig:
-    """Dataset and DataLoader.
-
-    Cross-dataset usage (UIEB full training -> LSUI full testing):
-        dataset='uieb', train_split='full', val_dataset='uieb', val_split='val'
-    Training set and validation set can be from different sources; if val_root is empty, root is reused.
-    """
+    """Dataset and DataLoader; validation may come from another source (empty val_root reuses root)."""
     dataset: str = 'uieb'                 # training set: uieb / lsui
     root: str = '../UIEB'                 # training set root directory (relative to FSANet/)
     train_split: str = 'train'            # train / val / test / full (full = merge all splits)
@@ -72,11 +39,7 @@ class ModelConfig:
 
 @dataclass
 class LossConfig:
-    """MultiSpectralLoss component weights -- the main focus of hyperparameter experiments.
-
-    total = alpha * gradient loss + beta * low-frequency loss + gamma * color-correlation loss
-            + lambda_percep * VGG perceptual loss
-    """
+    """MultiSpectralLoss weights: alpha*gradient + beta*low-freq + gamma*color-corr + lambda_percep*VGG."""
     alpha: float = 0.5                    # gradient (Sobel magnitude) L1
     beta: float = 0.3                     # low-frequency (MSE after avg_pool)
     gamma: float = 0.2                    # color-correlation L1
@@ -110,13 +73,13 @@ class TrainConfig:
     grad_clip: float = 0.0                # clip by global norm when >0; 0 means no clipping (original behavior)
     seed: int = 42
     deterministic: bool = False           # enable cudnn.deterministic when True (slower)
-    log_interval: int = 100               # reserved (current progress bar refreshes per batch)
+    log_interval: int = 100               # unused; the progress bar refreshes per batch
 
 
 @dataclass
 class EvalConfig:
-    metric_start_epoch: int = 51          # original logic epoch > 50
-    save_best_start_epoch: int = 51       # original logic epoch > 50
+    metric_start_epoch: int = 51          # no metrics before this epoch
+    save_best_start_epoch: int = 51       # no checkpoint before this epoch
     val_sample_count: int = 5             # number of triptychs saved per validation round
     visualize_count: int = 50             # upper limit on number of visualizations after training
 

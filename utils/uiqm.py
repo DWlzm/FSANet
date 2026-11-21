@@ -39,19 +39,12 @@ import skimage
 from skimage import color
 from skimage.metrics import structural_similarity
 def mu_a(x, alpha_L=0.1, alpha_R=0.1):
-    """
-      Calculates the asymetric alpha-trimmed mean
-    """
-    # sort pixels by intensity - for clipping
+    """Asymmetric alpha-trimmed mean."""
     x = sorted(x)
-    # get number of pixels
     K = len(x)
-    # calculate T alpha L and T alpha R
     T_a_L = math.ceil(alpha_L*K)
     T_a_R = math.floor(alpha_R*K)
-    # calculate mu_alpha weight
     weight = (1/(K-T_a_L-T_a_R))
-    # loop through flattened image starting at T_a_L+1 and ending at K-T_a_R
     s   = int(T_a_L+1)
     e   = int(K-T_a_R)
     val = sum(x[s:e])
@@ -86,19 +79,12 @@ def sobel(x):
     return mag
 
 def eme(x, window_size):
-    """
-      Enhancement measure estimation
-      x.shape[0] = height
-      x.shape[1] = width
-    """
-    # if 4 blocks, then 2x2...etc.
+    """Enhancement measure estimation."""
     k1 = x.shape[1]/window_size
     k2 = x.shape[0]/window_size
-    # weight
     w = 2./(k1*k2)
     blocksize_x = window_size
     blocksize_y = window_size
-    # make sure image is divisible by window_size - doesn't matter if we cut out some pixels
     x = x[:int(blocksize_y*k2), :int(blocksize_x*k1)]
     val = 0
     for l in range(int(k1)):
@@ -113,26 +99,19 @@ def eme(x, window_size):
     return w*val
 
 def _uism(x):
-    """
-      Underwater Image Sharpness Measure
-    """
-    # get image channels
+    """Underwater Image Sharpness Measure."""
     R = x[:,:,0]
     G = x[:,:,1]
     B = x[:,:,2]
-    # first apply Sobel edge detector to each RGB component
     Rs = sobel(R)
     Gs = sobel(G)
     Bs = sobel(B)
-    # multiply the edges detected for each channel by the channel itself
     R_edge_map = np.multiply(Rs, R)
     G_edge_map = np.multiply(Gs, G)
     B_edge_map = np.multiply(Bs, B)
-    # get eme for each channel
     r_eme = eme(R_edge_map, 10)
     g_eme = eme(G_edge_map, 10)
     b_eme = eme(B_edge_map, 10)
-    # coefficients
     lambda_r = 0.299
     lambda_g = 0.587
     lambda_b = 0.144
@@ -157,7 +136,6 @@ def plip_diag(c, g, gamma):
 
 def plip_multiplication(g1, g2):
     return plip_phiInverse(plip_phi(g1) * plip_phi(g2))
-    #return plip_phiInverse(plip_phi(plip_g(g1)) * plip_phi(plip_g(g2)))
 
 def plip_phiInverse(g):
     plip_lambda = 1026.0
@@ -175,16 +153,12 @@ def _uiconm(x, window_size):
     plip_beta   = 1.0
     plip_mu     = 1026.0
     plip_k      = 1026.0
-    # if 4 blocks, then 2x2...etc.
     k1 = x.shape[1]/window_size
     k2 = x.shape[0]/window_size
-    # weight
     w = -1./(k1*k2)
     blocksize_x = window_size
     blocksize_y = window_size
-    # make sure image is divisible by window_size - doesn't matter if we cut out some pixels
     x = x[:int(blocksize_y*k2), :int(blocksize_x*k1)]
-    # entropy scale - higher helps with randomness
     alpha = 1
     val = 0
     for l in range(int(k1)):
@@ -196,20 +170,12 @@ def _uiconm(x, window_size):
             bot = max_+min_
             if math.isnan(top) or math.isnan(bot) or bot == 0.0 or top == 0.0: val += 0.0
             else: val += alpha*math.pow((top/bot),alpha) * math.log(top/bot)
-            #try: val += plip_multiplication((top/bot),math.log(top/bot))
     return w*val
 
-##########################################################################################
 
 def getUIQM(x):
-    """
-      Function to return UIQM to be called from other programs
-      x: image
-    """
+    """UIQM score, coefficients from the original paper."""
     x = x.astype(np.float32)
-    ### from https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7300447
-    #c1 = 0.4680; c2 = 0.2745; c3 = 0.2576
-    ### from https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7300447
     c1 = 0.0282; c2 = 0.2953; c3 = 3.5753
     uicm   = _uicm(x)
     uism   = _uism(x)
@@ -219,7 +185,6 @@ def getUIQM(x):
 
 
 def getUCIQE(rgb_in):
-    # calculate Chroma
     rgb_in = cv2.normalize(rgb_in, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
     (l,a,b)=cv2.split(rgb_in)
     Chroma = np.sqrt(a*a + b*b)

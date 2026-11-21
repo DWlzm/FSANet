@@ -1,10 +1,4 @@
-"""FSANet training entry point.
-
-All hyperparameters are centralized in config.py: this file only handles parsing overrides, building the pipeline, and running the loop.
-Common examples:
-    python train.py --epochs 2 --batch_size 2 --gpu_ids 0
-    python train.py --alpha 0.4 --beta 0.4 --gamma 0.1 --lambda_percep 0.2
-"""
+"""FSANet training entry point: CLI overrides on top of the hyperparameters in config.py."""
 import argparse
 import json
 import os
@@ -140,7 +134,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 is_distributed = init_distributed(args)
 set_seed(cfg.train.seed, cfg.train.deterministic)
 
-# hyperparameter extraction (subsequent functions keep these names, logic identical to the original script)
 epochs = cfg.train.epochs
 batch_size = cfg.train.batch_size
 lr = cfg.optim.lr
@@ -223,7 +216,6 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
 
 scaler = GradScaler(enabled=cfg.train.amp)
 
-# loss (all four component weights come from config)
 multispectral_loss = MultiSpectralLoss(
     alpha=cfg.loss.alpha, beta=cfg.loss.beta, gamma=cfg.loss.gamma,
     lambda_percep=cfg.loss.lambda_percep, percep_layers=cfg.loss.percep_layers,

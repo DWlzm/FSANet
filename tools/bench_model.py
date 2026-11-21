@@ -1,12 +1,10 @@
 """FSANet complexity benchmark: params / FLOPs(MACs) / memory / latency.
 
 Usage:
-    python tools/bench_model.py                          # default n_filters=128, test 256/512
+    python tools/bench_model.py                          # default n_filters=32, sizes 256/512
     python tools/bench_model.py --n_filters 64
     python tools/bench_model.py --sizes 256 --batch 4 --train_mem
     python tools/bench_model.py --save_json bench.json
-
-
 """
 import argparse
 import json
