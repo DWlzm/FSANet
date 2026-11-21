@@ -2,14 +2,7 @@
 # -*- coding: utf-8 -*-
 """Cross-dataset experiment: UIEB full training -> LSUI full testing.
 
-One command completes "training + in-domain testing + cross-domain testing + summary report":
-    python cross_dataset.py --epochs 2 --batch_size 2
 
-Default protocol:
-    Training set : UIEB, split=full (train+val+test, 890 images in total)
-    Monitoring set : UIEB val (inside the training set, used only to observe convergence, not as a generalization conclusion)
-    In-domain test: UIEB test (90 images)
-    Cross-domain test: LSUI test (856 images, full)
 
 Outputs: checkpoints/<run_name>/{config.json,unet_simplified_best.pth,...}
         results/test_lsui_test_*/metrics.txt (per-image metrics in metrics_per_image.csv)
