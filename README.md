@@ -32,6 +32,5 @@ To install FSANet, follow these steps:
      - **EUVP**: Enhancing Underwater Visual Perception dataset. Available at [https://github.com/JJsnowx/EUVP_Dataset/tree/main](https://github.com/JJsnowx/EUVP_Dataset/tree/main).
 
 ## Train
-
+```bash
 python train.py
-    
