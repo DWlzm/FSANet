@@ -27,3 +27,11 @@ To install FSANet, follow these steps:
 3. Install dependencies:
 
         pip3 install torch>=2.0.0 torchvision opencv-python scikit-image numpy pillow tqdm matplotlib pandas thop
+4. Dataset download:
+      - **UIEB**: A real-world underwater image enhancement benchmark. Download from [https://li-chongyi.github.io/proj_benchmark.html](https://li-chongyi.github.io/proj_benchmark.html).
+     - **EUVP**: Enhancing Underwater Visual Perception dataset. Available at [https://github.com/JJsnowx/EUVP_Dataset/tree/main](https://github.com/JJsnowx/EUVP_Dataset/tree/main).
+
+## Train
+
+python train.py
+    
