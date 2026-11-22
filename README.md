@@ -40,12 +40,3 @@ python train.py --dataset lsui --train_split full --batch_size 2
 python train.py --config checkpoints/<run>/config.json --run_name rerun
 ```
 
-- Priority: named flags > `--override k=v` > `--config json` > `config.py`. One flag takes several overrides:
-  `--override eval.metric_start_epoch=1 eval.save_best_start_epoch=1 data.num_workers=0`
-- Defaults: 100 epochs, batch 8 (use 2 on 12 GB), AdamW lr 1e-2, n_filters 32, AMP on, ≈21.8 M params.
-- **Metrics and best weights only start at epoch 51.** Short runs need `--override eval.metric_start_epoch=1 eval.save_best_start_epoch=1`.
-- `checkpoints/unet_simplified_best.pth` is auto-loaded when present; disable with `--override model.load_pretrained_if_exists=false`.
-- "Best" = composite score defined in `utils/model_config.py` (not in `config.py`).
-- Each epoch also writes 5 preview images; `eval.val_sample_count=0` turns that off.
-- Windows worker errors: `--override data.num_workers=0`.
-- Output: `checkpoints/<run>/` → `config.json` (reusable via `--config`), `unet_simplified_best.pth`, `metrics_epoch_*.txt`, `show/`.
