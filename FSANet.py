@@ -110,13 +110,13 @@ class DFSAM(nn.Module):
             cbr(channels, channels, 3),
             cbr(channels, channels, 3),
         )
-        # spatial branch: depthwise + pointwise
+        # 空间分支：depthwise + pointwise
         self.dw_conv = nn.Conv2d(channels, channels, 7, padding=3,
                                  groups=channels, bias=False)
         self.pw_conv = nn.Conv2d(channels, channels, 1, bias=False)
-        # frequency branch: modulate real / imag at spectral resolution
+        # 频域分支：直接在频谱尺寸上做，real/imag 分别调制
         self.freq_conv = nn.Conv2d(channels * 2, channels * 2, 1, bias=False)
-        # per-pixel gate over both branches
+        # 门控：逐像素，看两个分支内容
         self.gate_conv = nn.Conv2d(channels * 2, 1, 1, bias=True)
 
     def forward(self, F_in):
@@ -124,22 +124,25 @@ class DFSAM(nn.Module):
 
         F_init = self.local(F_in)
 
+        # 空间分支
         F_s = F_init * torch.sigmoid(self.pw_conv(self.dw_conv(F_init)))
 
+        # 频域分支：无插值，直接频谱尺寸调制
         fft_x = torch.fft.rfft2(F_init, norm='ortho')       # (B,C,H,W//2+1)
         F_freq = torch.cat([fft_x.real, fft_x.imag], dim=1) # (B,2C,H,W//2+1)
         a = self.freq_conv(F_freq)                          # (B,2C,H,W//2+1)
         a_real, a_imag = a[:, :C], a[:, C:]
-        # gain centred at 1, so the branch can amplify or attenuate
+        # 以 1 为中心的增益，允许增强/衰减
         gain_r = 1.0 + torch.tanh(a_real)
         gain_i = 1.0 + torch.tanh(a_imag)
         modulated = torch.complex(fft_x.real * gain_r,
                                   fft_x.imag * gain_i)
         F_f = torch.fft.irfft2(modulated, s=(H, W), norm='ortho')
-        F_f = F_f + F_init   # residual: keep the frequency branch from carrying the output alone
+        F_f = F_f + F_init   # 残差，降低频域分支独立承担输出的压力
 
+        # 逐像素门控
         g = torch.sigmoid(self.gate_conv(torch.cat([F_s, F_f], dim=1)))  # (B,1,H,W)
-        return g * F_s + (1 - g) * F_f + F_in
+        return g * F_s + (1 - g) * F_f + F_in   # 外层再加输入残差
 
 class SharedChannelAttention(nn.Module):
     def __init__(self, c_high, c_low, reduction=16):
@@ -208,7 +211,6 @@ class ABM(nn.Module):
         self.dbagm_low = DBAGM(c_low)
 
     def forward(self, F_high, F_low):
-        return F_high,F_low
         h_sca, l_sca = self.sca(F_high, F_low)
         h_smsa, l_smsa = self.smsa(F_high, F_low)
         return self.dbagm_high(h_sca, h_smsa), self.dbagm_low(l_sca, l_smsa)
