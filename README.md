@@ -3,6 +3,20 @@
 If you have any questions about reproducing the paper, please contact zhongmingliu2004@qq.com.
 <img width="1328" height="882" alt="image" src="https://github.com/user-attachments/assets/9f01daba-1f0f-4799-968f-237b484005c8" />
 
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <b>Input</b><br>
+        <img src="./input.png" width="400" alt="Underwater Input Image" style="border-radius: 8px;">
+      </td>
+      <td align="center">
+        <b>Output</b><br>
+        <img src="./output.png" width="400" alt="Enhanced Output Image" style="border-radius: 8px;">
+      </td>
+    </tr>
+  </table>
+</div>
 
 ## Acknowledgement
 
