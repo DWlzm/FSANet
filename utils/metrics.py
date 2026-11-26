@@ -13,70 +13,105 @@ from skimage.metrics import mean_squared_error as mse
 from utils.model_config import get_metric_weights, get_metric_baselines
 
 
+# ---------------------------------------------------------------------------
+# Layout / dtype helpers
+# ---------------------------------------------------------------------------
+def _to_hwc_uint8(img):
+    """Convert tensor/ndarray (any layout, float[0,1] or uint8) to HWC uint8 RGB."""
+    if isinstance(img, torch.Tensor):
+        img = img.cpu().detach().numpy()
+    img = np.asarray(img)
+
+    if img.ndim == 4:
+        img = img[0]
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    elif img.ndim == 3:
+        # CHW -> HWC if first axis looks like channels
+        if img.shape[0] == 3 and img.shape[-1] != 3:
+            img = np.transpose(img, (1, 2, 0))
+        elif img.shape[0] == 1:
+            img = np.transpose(img, (1, 2, 0))
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+
+    if img.dtype != np.uint8:
+        img = np.clip(img, 0.0, 1.0)
+        img = (img * 255.0 + 0.5).astype(np.uint8)
+    return img
+
+
+# ---------------------------------------------------------------------------
+# UIQM components
+# ---------------------------------------------------------------------------
 def mu_a(x, alpha_L=0.1, alpha_R=0.1):
-    """Asymmetric alpha-trimmed mean."""
-    x = sorted(x)
-    K = len(x)
-    T_a_L = math.ceil(alpha_L*K)
-    T_a_R = math.floor(alpha_R*K)
-    weight = (1/(K-T_a_L-T_a_R))
-    s   = int(T_a_L+1)
-    e   = int(K-T_a_R)
-    val = sum(x[s:e])
-    val = weight*val
-    return val
+    """Asymmetric alpha-trimmed mean (vectorized)."""
+    x = np.sort(np.asarray(x).ravel())
+    K = x.size
+    T_a_L = math.ceil(alpha_L * K)
+    T_a_R = math.floor(alpha_R * K)
+    denom = K - T_a_L - T_a_R
+    if denom <= 0:
+        return float(np.mean(x)) if K > 0 else 0.0
+    s = int(T_a_L)
+    e = int(K - T_a_R)
+    return float(x[s:e].sum() / denom)
+
 
 def s_a(x, mu):
-    val = 0
-    for pixel in x:
-        val += math.pow((pixel-mu), 2)
-    return val/len(x)
+    x = np.asarray(x, dtype=np.float64)
+    return float(np.mean((x - mu) ** 2))
+
 
 def _uicm(x):
-    R = x[:,:,0].flatten()
-    G = x[:,:,1].flatten()
-    B = x[:,:,2].flatten()
-    RG = R-G
-    YB = ((R+G)/2)-B
+    R = x[:, :, 0].astype(np.float64)
+    G = x[:, :, 1].astype(np.float64)
+    B = x[:, :, 2].astype(np.float64)
+    RG = R - G
+    YB = ((R + G) / 2.0) - B
     mu_a_RG = mu_a(RG)
     mu_a_YB = mu_a(YB)
     s_a_RG = s_a(RG, mu_a_RG)
     s_a_YB = s_a(YB, mu_a_YB)
-    l = math.sqrt( (math.pow(mu_a_RG,2)+math.pow(mu_a_YB,2)) )
-    r = math.sqrt(s_a_RG+s_a_YB)
-    return (-0.0268*l)+(0.1586*r)
+    l = math.sqrt(mu_a_RG ** 2 + mu_a_YB ** 2)
+    r = math.sqrt(s_a_RG + s_a_YB)
+    return (-0.0268 * l) + (0.1586 * r)
+
 
 def sobel(x):
-    dx = ndimage.sobel(x,0)
-    dy = ndimage.sobel(x,1)
+    dx = ndimage.sobel(x, 0)
+    dy = ndimage.sobel(x, 1)
     mag = np.hypot(dx, dy)
-    mag *= 255.0 / np.max(mag) 
+    m = float(np.max(mag))
+    if m > 0:
+        mag = mag * (255.0 / m)
     return mag
+
 
 def eme(x, window_size):
     """Enhancement measure estimation."""
-    k1 = x.shape[1]/window_size
-    k2 = x.shape[0]/window_size
-    w = 2./(k1*k2)
-    blocksize_x = window_size
-    blocksize_y = window_size
-    x = x[:int(blocksize_y*k2), :int(blocksize_x*k1)]
-    val = 0
+    x = np.asarray(x, dtype=np.float64)
+    k1 = x.shape[1] / window_size
+    k2 = x.shape[0] / window_size
+    w = 2.0 / (k1 * k2)
+    x = x[: int(window_size * k2), : int(window_size * k1)]
+    val = 0.0
     for l in range(int(k1)):
         for k in range(int(k2)):
-            block = x[k*window_size:window_size*(k+1), l*window_size:window_size*(l+1)]
-            max_ = np.max(block)
-            min_ = np.min(block)
-            if min_ == 0.0: val += 0
-            elif max_ == 0.0: val += 0
-            else: val += math.log(max_/min_)
-    return w*val
+            block = x[k * window_size: window_size * (k + 1),
+                      l * window_size: window_size * (l + 1)]
+            max_ = float(np.max(block))
+            min_ = float(np.min(block))
+            if min_ == 0.0 or max_ == 0.0:
+                continue
+            val += math.log(max_ / min_)
+    return w * val
+
 
 def _uism(x):
     """Underwater Image Sharpness Measure."""
-    R = x[:,:,0]
-    G = x[:,:,1]
-    B = x[:,:,2]
+    R = x[:, :, 0]
+    G = x[:, :, 1]
+    B = x[:, :, 2]
     Rs = sobel(R)
     Gs = sobel(G)
     Bs = sobel(B)
@@ -88,142 +123,112 @@ def _uism(x):
     b_eme = eme(B_edge_map, 10)
     lambda_r = 0.299
     lambda_g = 0.587
-    lambda_b = 0.144
-    return (lambda_r*r_eme) + (lambda_g*g_eme) + (lambda_b*b_eme)
+    lambda_b = 0.114          # was 0.144 (typo)
+    return (lambda_r * r_eme) + (lambda_g * g_eme) + (lambda_b * b_eme)
 
-def plip_g(x,mu=1026.0):
-    return mu-x
-
-def plip_theta(g1, g2, k):
-    g1 = plip_g(g1)
-    g2 = plip_g(g2)
-    return k*((g1-g2)/(k-g2))
-
-def plip_cross(g1, g2, gamma):
-    g1 = plip_g(g1)
-    g2 = plip_g(g2)
-    return g1+g2-((g1*g2)/(gamma))
-
-def plip_diag(c, g, gamma):
-    g = plip_g(g)
-    return gamma - (gamma * math.pow((1 - (g/gamma) ), c) )
-
-def plip_multiplication(g1, g2):
-    return plip_phiInverse(plip_phi(g1) * plip_phi(g2))
-
-def plip_phiInverse(g):
-    plip_lambda = 1026.0
-    plip_beta   = 1.0
-    return plip_lambda * (1 - math.pow(math.exp(-g / plip_lambda), 1 / plip_beta));
-
-def plip_phi(g):
-    plip_lambda = 1026.0
-    plip_beta   = 1.0
-    return -plip_lambda * math.pow(math.log(1 - g / plip_lambda), plip_beta)
 
 def _uiconm(x, window_size):
-    plip_lambda = 1026.0
-    plip_gamma  = 1026.0
-    plip_beta   = 1.0
-    plip_mu     = 1026.0
-    plip_k      = 1026.0
-    k1 = x.shape[1]/window_size
-    k2 = x.shape[0]/window_size
-    w = -1./(k1*k2)
-    blocksize_x = window_size
-    blocksize_y = window_size
-    x = x[:int(blocksize_y*k2), :int(blocksize_x*k1)]
+    x = np.asarray(x, dtype=np.float64)
+    k1 = x.shape[1] / window_size
+    k2 = x.shape[0] / window_size
+    w = -1.0 / (k1 * k2)
+    x = x[: int(window_size * k2), : int(window_size * k1)]
     alpha = 1
-    val = 0
+    val = 0.0
     for l in range(int(k1)):
         for k in range(int(k2)):
-            block = x[k*window_size:window_size*(k+1), l*window_size:window_size*(l+1), :]
-            max_ = np.max(block)
-            min_ = np.min(block)
-            top = max_-min_
-            bot = max_+min_
-            if math.isnan(top) or math.isnan(bot) or bot == 0.0 or top == 0.0: val += 0.0
-            else: val += alpha*math.pow((top/bot),alpha) * math.log(top/bot)
-    return w*val
+            block = x[k * window_size: window_size * (k + 1),
+                      l * window_size: window_size * (l + 1), :]
+            max_ = float(np.max(block))
+            min_ = float(np.min(block))
+            top = max_ - min_
+            bot = max_ + min_
+            if math.isnan(top) or math.isnan(bot) or bot == 0.0 or top == 0.0:
+                continue
+            val += alpha * math.pow(top / bot, alpha) * math.log(top / bot)
+    return w * val
+
 
 def getUIQM(x):
     """UIQM score, coefficients from the original paper."""
-    x = x.astype(np.float32)
-    c1 = 0.0282; c2 = 0.2953; c3 = 3.5753
-    uicm   = _uicm(x)
-    uism   = _uism(x)
+    x = _to_hwc_uint8(x).astype(np.float32)
+    c1, c2, c3 = 0.0282, 0.2953, 3.5753
+    uicm = _uicm(x)
+    uism = _uism(x)
     uiconm = _uiconm(x, 10)
-    uiqm = (c1*uicm) + (c2*uism) + (c3*uiconm)
-    return uiqm
+    return (c1 * uicm) + (c2 * uism) + (c3 * uiconm)
 
+
+# ---------------------------------------------------------------------------
+# UCIQE
+# ---------------------------------------------------------------------------
 def getUCIQE(rgb_in):
-    rgb_in = cv2.normalize(rgb_in, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    """
+    UCIQE (Underwater Color Image Quality Evaluation), Yang & Sowmya 2015.
+    UCIQE = 0.4680 * std(chroma) + 0.2745 * (max(L)-min(L)) + 0.2576 * mean(S)
+    All three terms normalized to [0, 1].
+    """
+    rgb_in = _to_hwc_uint8(rgb_in)
 
-    if len(rgb_in.shape) == 4:
-        rgb_in = rgb_in[0]
-    if rgb_in.shape[0] == 3:  # (channel, height, width)
-        rgb_in = np.transpose(rgb_in, (1, 2, 0))
+    # LAB: L,a,b all normalized to a comparable [0,1]-ish scale
+    lab = cv2.cvtColor(rgb_in, cv2.COLOR_RGB2LAB)   # uint8: L∈[0,255], a,b∈[0,255]
+    L = lab[:, :, 0].astype(np.float32) / 255.0
+    a = lab[:, :, 1].astype(np.float32) - 128.0
+    b = lab[:, :, 2].astype(np.float32) - 128.0
 
-    bgr_in = cv2.cvtColor(rgb_in, cv2.COLOR_RGB2BGR)
-    (l,a,b) = cv2.split(bgr_in)
-    Chroma = np.sqrt(a*a + b*b)
-    StdVarianceChroma = np.std(np.reshape(Chroma[:,:],(-1,1)))
+    chroma = np.sqrt(a * a + b * b) / 181.0          # ~[0,1]
+    std_chroma = float(np.std(chroma))
 
-    hsv = skimage.color.rgb2hsv(rgb_in)
-    Saturation = hsv[:,:,2]
-    MeanSaturation = np.mean(np.reshape(Saturation[:,:],(-1,1)))
+    con_l = float(L.max() - L.min())                 # [0,1]
 
-    ContrastLuminance = max(np.reshape(l[:,:],(-1,1))) - min(np.reshape(l[:,:],(-1,1)))
-    UCIQE = 0.4680 * StdVarianceChroma + 0.2745 * ContrastLuminance + 0.2576 * MeanSaturation
-    return float(UCIQE)
+    hsv = cv2.cvtColor(rgb_in, cv2.COLOR_RGB2HSV)    # uint8: H∈[0,179], S,V∈[0,255]
+    S = hsv[:, :, 1].astype(np.float32) / 255.0      # [0,1]
+    mean_sat = float(np.mean(S))
 
+    uciqe = 0.4680 * std_chroma + 0.2745 * con_l + 0.2576 * mean_sat
+    return float(uciqe)
+
+
+# ---------------------------------------------------------------------------
+# PCQI
+# ---------------------------------------------------------------------------
 def calculate_pcqi(img1, img2):
-    """Patch-based contrast quality index."""
-    if len(img1.shape) == 4:
-        img1 = img1[0]
-        img2 = img2[0]
+    """Patch-based contrast quality index (approximate, patch_size=8)."""
+    img1 = _to_hwc_uint8(img1)
+    img2 = _to_hwc_uint8(img2)
 
-    if img1.shape[0] == 3:  # (channel, height, width)
-        img1 = np.transpose(img1, (1, 2, 0))
-        img2 = np.transpose(img2, (1, 2, 0))
-
-    if len(img1.shape) == 3:
-        gray1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY)
-        gray2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY)
-    else:
-        gray1, gray2 = img1, img2
+    gray1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY).astype(np.float64)
+    gray2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY).astype(np.float64)
 
     patch_size = 8
     h, w = gray1.shape
-    pcqi_values = []
+    if h < patch_size or w < patch_size:
+        return float("nan")
 
+    pcqi_values = []
     for i in range(0, h - patch_size + 1, patch_size):
         for j in range(0, w - patch_size + 1, patch_size):
-            patch1 = gray1[i:i+patch_size, j:j+patch_size]
-            patch2 = gray2[i:i+patch_size, j:j+patch_size]
+            p1 = gray1[i:i + patch_size, j:j + patch_size]
+            p2 = gray2[i:i + patch_size, j:j + patch_size]
+            mean1, std1 = float(np.mean(p1)), float(np.std(p1))
+            mean2, std2 = float(np.mean(p2)), float(np.std(p2))
 
-            mean1, std1 = np.mean(patch1), np.std(patch1)
-            mean2, std2 = np.mean(patch2), np.std(patch2)
+            denom_c = std1 ** 2 + std2 ** 2
+            contrast_sim = (2 * std1 * std2 / denom_c) if denom_c > 0 else 1.0
 
-            if std1 + std2 > 0:
-                contrast_sim = 2 * std1 * std2 / (std1**2 + std2**2)
-            else:
-                contrast_sim = 1.0
+            denom_l = mean1 ** 2 + mean2 ** 2
+            luminance_sim = (2 * mean1 * mean2 / denom_l) if denom_l > 0 else 1.0
 
-            if mean1 + mean2 > 0:
-                luminance_sim = 2 * mean1 * mean2 / (mean1**2 + mean2**2)
-            else:
-                luminance_sim = 1.0
+            pcqi_values.append(contrast_sim * luminance_sim)
 
-            pcqi_patch = contrast_sim * luminance_sim
-            pcqi_values.append(pcqi_patch)
+    return float(np.mean(pcqi_values)) if pcqi_values else float("nan")
 
-    pcqi = np.mean(pcqi_values)
 
-    return pcqi
-
+# ---------------------------------------------------------------------------
+# Aggregate metrics
+# ---------------------------------------------------------------------------
 def calculate_all_metrics(img1, img2):
-    """All metrics for one image pair, values in [0, 1]."""
+    """All metrics for one image pair. img1/img2: float [0,1], any layout."""
     if isinstance(img1, torch.Tensor):
         img1 = img1.cpu().detach().numpy()
     if isinstance(img2, torch.Tensor):
@@ -232,40 +237,39 @@ def calculate_all_metrics(img1, img2):
     img1 = np.clip(img1, 0, 1)
     img2 = np.clip(img2, 0, 1)
 
-    img1_uint8 = (img1 * 255).astype(np.uint8)
-    img2_uint8 = (img2 * 255).astype(np.uint8)
-
     metrics = {}
 
-    metrics['psnr'] = psnr(img1, img2, data_range=1.0)
+    metrics['psnr'] = float(psnr(img1, img2, data_range=1.0))
+    metrics['mse'] = float(mse(img1, img2))
 
-    # SSIM window must fit the image and be odd
-    if len(img1.shape) == 4:
-        min_dim = min(img1.shape[2:4])
-    elif len(img1.shape) == 3:
-        min_dim = min(img1.shape[1:3])
-    elif len(img1.shape) == 2:
-        min_dim = min(img1.shape)
+    # ---- SSIM: reduce to 3D, compute min spatial dim ----
+    a = img1[0] if img1.ndim == 4 else img1
+    b = img2[0] if img2.ndim == 4 else img2
+
+    # channel_axis: 0 for CHW, -1 for HWC
+    if a.ndim == 3 and a.shape[0] in (1, 3) and a.shape[-1] not in (1, 3):
+        channel_axis = 0
+        min_dim = min(a.shape[1], a.shape[2])
+    elif a.ndim == 3 and a.shape[-1] in (1, 3):
+        channel_axis = -1
+        min_dim = min(a.shape[0], a.shape[1])
+    else:  # 2D
+        channel_axis = None
+        min_dim = min(a.shape[0], a.shape[1])
+
+    if min_dim < 3:
+        metrics['ssim'] = float("nan")
     else:
-        min_dim = 7
+        win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)
+        win_size = max(3, win_size)
+        metrics['ssim'] = float(ssim(a, b, data_range=1.0,
+                                     channel_axis=channel_axis,
+                                     win_size=win_size))
 
-    win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)
-    if win_size < 3:
-        win_size = 3
-
-    if len(img1.shape) == 4:
-        img1_3d = img1[0]
-        img2_3d = img2[0]
-    else:
-        img1_3d = img1
-        img2_3d = img2
-
-    metrics['ssim'] = ssim(img1_3d, img2_3d, data_range=1.0, channel_axis=0, win_size=win_size)
-    metrics['mse'] = mse(img1, img2)
-    metrics['uiqm'] = getUIQM(img2_uint8[0] if len(img2_uint8.shape) == 4 else img2_uint8)
-    metrics['uciqe'] = getUCIQE(img2_uint8[0] if len(img2_uint8.shape) == 4 else img2_uint8)
-    metrics['pcqi'] = calculate_pcqi(img1_uint8[0] if len(img1_uint8.shape) == 4 else img1_uint8, 
-                                   img2_uint8[0] if len(img2_uint8.shape) == 4 else img2_uint8)
+    # ---- UIQM / UCIQE / PCQI: functions internally handle layout+dtype ----
+    metrics['uiqm'] = float(getUIQM(img2))
+    metrics['uciqe'] = float(getUCIQE(img2))
+    metrics['pcqi'] = float(calculate_pcqi(img1, img2))
 
     return metrics
 
@@ -275,12 +279,20 @@ def calculate_composite_score(metrics):
     weights = get_metric_weights()
     baselines = get_metric_baselines()
 
-    psnr_score = min(metrics['psnr'] / baselines['psnr'], 1.0)
-    ssim_score = metrics['ssim']
-    uiqm_score = min(metrics['uiqm'] / baselines['uiqm'], 1.0)
-    uciqe_score = min(metrics['uciqe'] / baselines['uciqe'], 1.0)
-    pcqi_score = min(metrics['pcqi'] / baselines['pcqi'], 1.0)
-    mse_score = max(0, 1.0 - metrics['mse'] / baselines['mse'])
+    def _safe_div(v, base, cap_high=True):
+        if base is None or base == 0 or not np.isfinite(base):
+            return 0.0
+        r = v / base
+        if not np.isfinite(r):
+            return 0.0
+        return min(r, 1.0) if cap_high else max(0.0, r)
+
+    psnr_score = _safe_div(metrics['psnr'], baselines['psnr'], True)
+    ssim_score = metrics['ssim'] if np.isfinite(metrics['ssim']) else 0.0
+    uiqm_score = _safe_div(metrics['uiqm'], baselines['uiqm'], True)
+    uciqe_score = _safe_div(metrics['uciqe'], baselines['uciqe'], True)
+    pcqi_score = _safe_div(metrics['pcqi'], baselines['pcqi'], True)
+    mse_score = max(0.0, 1.0 - _safe_div(metrics['mse'], baselines['mse'], False))
 
     composite_score = (
         weights['psnr'] * psnr_score +
@@ -290,5 +302,4 @@ def calculate_composite_score(metrics):
         weights['pcqi'] * pcqi_score +
         weights['mse'] * mse_score
     )
-
-    return composite_score
+    return float(composite_score)
